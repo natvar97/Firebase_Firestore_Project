@@ -15,6 +15,9 @@ import androidx.core.content.ContextCompat
 import com.bumptech.glide.Glide
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageReference
 import com.indialone.firebase_firestore_project.databinding.ActivityRegisterBinding
 import com.indialone.firebase_firestore_project.firestore.FireStoreClass
 import com.indialone.firebase_firestore_project.models.User
@@ -40,7 +43,7 @@ class RegisterActivity : AppCompatActivity(), View.OnClickListener {
         v?.id?.let {
             when (v.id) {
                 R.id.btn_register -> {
-                    submitUserProfileDetaisl()
+                    addDetailsToFireStore()
                 }
                 R.id.iv_user_photo -> {
                     grantCameraAndStoragePermission()
@@ -55,9 +58,9 @@ class RegisterActivity : AppCompatActivity(), View.OnClickListener {
         }
     }
 
-    private fun submitUserProfileDetaisl() {
+    private fun submitUserProfileDetails() {
         if (mSelectedImageUri != null) {
-            FireStoreClass().uploadImageToCloudStorage(this , mSelectedImageUri)
+            FireStoreClass().uploadImageToCloudStorage(this, mSelectedImageUri)
         } else {
             if (isNotValid()) {
                 Toast.makeText(
@@ -72,46 +75,66 @@ class RegisterActivity : AppCompatActivity(), View.OnClickListener {
     }
 
     private fun addDetailsToFireStore() {
-            val email = mBinding.etEmail.text.toString().trim { it <= ' ' }
-            val password = mBinding.etPassword.text.toString().trim { it <= ' ' }
-            val mobile = mBinding.etMobile.text.toString().trim { it <= ' ' }
-            val name = mBinding.etName.text.toString().trim { it <= ' ' }
-            val image = mUserProfileImageUrl
-            FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password)
-                .addOnCompleteListener { task ->
-                    if (task.isSuccessful) {
-                        val firebaseUser: FirebaseUser = task.result!!.user!!
-                        Log.e("mSelectedImageUri" , "$mSelectedImageUri")
-                            Log.e("image" , image)
-                            val user = User(
-                                firebaseUser.uid,
-                                email,
-                                name,
-                                mobile,
-                                image
-                            )
-                            Log.e("error mUserProfile" , "$mUserProfileImageUrl is blank")
-                            Log.e("error mUserProfile" , "$email")
-                            Log.e("error mUserProfile" , "$name")
+        val email = mBinding.etEmail.text.toString().trim { it <= ' ' }
+        val password = mBinding.etPassword.text.toString().trim { it <= ' ' }
+        val mobile = mBinding.etMobile.text.toString().trim { it <= ' ' }
+        val name = mBinding.etName.text.toString().trim { it <= ' ' }
+        val image = mUserProfileImageUrl
+        FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val firebaseUser: FirebaseUser = task.result!!.user!!
+                    Log.e("mSelectedImageUri", "$mSelectedImageUri")
+                    Log.e("image", image)
+                    var user = User(
+                        firebaseUser.uid,
+                        email,
+                        name,
+                        mobile
+                    )
+                    Log.e("error mUserProfile", "$mUserProfileImageUrl is blank")
+                    Log.e("error mUserProfile", "$email")
+                    Log.e("error mUserProfile", "$name")
 
-                            FireStoreClass().registerUser(this@RegisterActivity, user)
+                    FireStoreClass().registerUser(this@RegisterActivity, user)
 
-                        val intent =
-                            Intent(this@RegisterActivity, MainActivity::class.java)
-                        intent.flags =
-                            Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK
+                    val sRef: StorageReference = FirebaseStorage.getInstance().reference.child(
+                        Constants.USER_PROFILE_IMAGE + System.currentTimeMillis() + "." +
+                                Constants.getFileExtension(this, mSelectedImageUri)
+                    )
 
-                        startActivity(intent)
-                        finish()
+                    sRef.putFile(mSelectedImageUri!!).addOnSuccessListener { taskSnapShot ->
+                        taskSnapShot.metadata!!.reference!!.downloadUrl.addOnSuccessListener { uri ->
+                            mUserProfileImageUrl = uri.toString()
+                            val hashmap = HashMap<String, Any>()
+                            hashmap["image"] = mUserProfileImageUrl
+                            FirebaseFirestore.getInstance().collection(Constants.USERS_COLLECTION)
+                                .document(FireStoreClass().getCurrentUserId())
+                                .update(hashmap)
+                                .addOnSuccessListener {
+                                    val intent =
+                                        Intent(this@RegisterActivity, MainActivity::class.java)
+                                    intent.flags =
+                                        Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK
 
-                    } else {
-                        Toast.makeText(
-                            this@RegisterActivity,
-                            task.exception!!.message.toString(),
-                            Toast.LENGTH_SHORT
-                        ).show()
+                                    startActivity(intent)
+                                    finish()
+                                }
+                                .addOnFailureListener { e ->
+                                    Toast.makeText(this, e.message.toString(), Toast.LENGTH_SHORT).show()
+                                }
+                        }
                     }
+
+
+                } else {
+                    Toast.makeText(
+                        this@RegisterActivity,
+                        task.exception!!.message.toString(),
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
+            }
 
     }
 
@@ -203,8 +226,7 @@ class RegisterActivity : AppCompatActivity(), View.OnClickListener {
 
     fun imageUploadSuccess(uri: String) {
         mUserProfileImageUrl = uri
-        Log.e("mUrsePro" , mUserProfileImageUrl)
-        addDetailsToFireStore()
+        Log.e("mUrsePro", mUserProfileImageUrl)
     }
 
 }
